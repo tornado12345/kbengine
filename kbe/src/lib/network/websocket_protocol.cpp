@@ -1,22 +1,4 @@
-/*
-This source file is part of KBEngine
-For the latest info, see http://www.kbengine.org/
-
-Copyright (c) 2008-2016 KBEngine.
-
-KBEngine is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-KBEngine is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
- 
-You should have received a copy of the GNU Lesser General Public License
-along with KBEngine.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright 2008-2018 Yolo Technologies, Inc. All Rights Reserved. https://www.comblockengine.com
 
 #include "websocket_protocol.h"
 #include "common/memorystream.h"
@@ -44,6 +26,10 @@ namespace websocket{
 bool WebSocketProtocol::isWebSocketProtocol(MemoryStream* s)
 {
 	KBE_ASSERT(s != NULL);
+
+	// 字符串加上结束符至少长度需要大于2，否则返回以免MemoryStream产生异常
+	if(s->length() < 2)
+		return false;
 
 	std::string data;
 	size_t rpos = s->rpos();
@@ -86,7 +72,11 @@ bool WebSocketProtocol::isWebSocketProtocol(MemoryStream* s)
 bool WebSocketProtocol::handshake(Network::Channel* pChannel, MemoryStream* s)
 {
 	KBE_ASSERT(s != NULL);
-
+	
+	// 字符串加上结束符至少长度需要大于2，否则返回以免MemoryStream产生异常
+	if(s->length() < 2)
+		return false;
+	
 	std::string data;
 	size_t rpos = s->rpos();
 	size_t wpos = s->wpos();
@@ -248,12 +238,13 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	*/
 
 	// 不足3字节，需要继续等待
-	if(pPacket->length() < 3) 
+	int remainSize = 3 - pPacket->length();
+	if(remainSize > 0) 
 	{
 		frameType = INCOMPLETE_FRAME;
-		return 3;
+		return remainSize;
 	}
-
+	
 	// 第一个字节, 最高位用于描述消息是否结束, 最低4位用于描述消息类型
 	uint8 bytedata;
 	(*pPacket) >> bytedata;
@@ -278,12 +269,28 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	}
 	else if(msg_length_field == 126) 
 	{ 
+		// 不足2字节，需要继续等待
+		remainSize = 2 - pPacket->length();
+		if(remainSize > 0) 
+		{
+			frameType = INCOMPLETE_FRAME;
+			return remainSize;
+		}
+	
 		uint8 bytedata1, bytedata2;
 		(*pPacket) >> bytedata1 >> bytedata2;
 		msg_payload_length = (bytedata1 << 8) | bytedata2;
 	}
 	else if(msg_length_field == 127) 
-	{ 
+	{
+		// 不足8字节，需要继续等待
+		remainSize = 8 - pPacket->length();
+		if(remainSize > 0) 
+		{
+			frameType = INCOMPLETE_FRAME;
+			return remainSize;
+		}
+		
 		msg_payload_length = ((uint64)(pPacket->data() + pPacket->rpos() + 0) << 56) |
                          ((uint64)(pPacket->data() + pPacket->rpos() + 1) << 48) |
                          ((uint64)(pPacket->data() + pPacket->rpos() + 2) << 40) |
@@ -307,6 +314,14 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	// 如果存在掩码的情况下获取4字节掩码值
 	if(msg_masked) 
 	{
+		// 不足4字节，需要继续等待
+		remainSize = 4 - pPacket->length();
+		if(remainSize > 0) 
+		{
+			frameType = INCOMPLETE_FRAME;
+			return remainSize;
+		}
+		
 		(*pPacket) >> msg_mask;
 	}
 	

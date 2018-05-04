@@ -1,22 +1,4 @@
-/*
-This source file is part of KBEngine
-For the latest info, see http://www.kbengine.org/
-
-Copyright (c) 2008-2016 KBEngine.
-
-KBEngine is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-KBEngine is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
- 
-You should have received a copy of the GNU Lesser General Public License
-along with KBEngine.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright 2008-2018 Yolo Technologies, Inc. All Rights Reserved. https://www.comblockengine.com
 
 
 #include "cellappmgr.h"
@@ -324,7 +306,7 @@ uint32 Cellappmgr::numLoadBalancingApp()
 }
 
 //-------------------------------------------------------------------------------------
-void Cellappmgr::reqCreateInNewSpace(Network::Channel* pChannel, MemoryStream& s) 
+void Cellappmgr::reqCreateCellEntityInNewSpace(Network::Channel* pChannel, MemoryStream& s) 
 {
 	std::string entityType;
 	ENTITY_ID id;
@@ -345,7 +327,7 @@ void Cellappmgr::reqCreateInNewSpace(Network::Channel* pChannel, MemoryStream& s
 	static SPACE_ID spaceID = 1;
 
 	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
-	(*pBundle).newMessage(CellappInterface::onCreateInNewSpaceFromBaseapp);
+	(*pBundle).newMessage(CellappInterface::onCreateCellEntityInNewSpaceFromBaseapp);
 	(*pBundle) << entityType;
 	(*pBundle) << id;
 	(*pBundle) << spaceID++;
@@ -369,7 +351,7 @@ void Cellappmgr::reqCreateInNewSpace(Network::Channel* pChannel, MemoryStream& s
 		}
 		else if (bestCellappID_ == 0 && numLoadBalancingApp() == 0)
 		{
-			ERROR_MSG(fmt::format("Cellappmgr::reqCreateInNewSpace: Unable to allocate cellapp for load balancing! entityType={}, entityID={}, componentID={}, cellappSize={}.\n",
+			ERROR_MSG(fmt::format("Cellappmgr::reqCreateCellEntityInNewSpace: Unable to allocate cellapp for load balancing! entityType={}, entityID={}, componentID={}, cellappSize={}.\n",
 				entityType, id, componentID, cellappSize));
 		}
 	}
@@ -380,7 +362,7 @@ void Cellappmgr::reqCreateInNewSpace(Network::Channel* pChannel, MemoryStream& s
 
 	if (cinfos == NULL || cinfos->pChannel == NULL || cinfos->state != COMPONENT_STATE_RUN)
 	{
-		WARNING_MSG("Cellappmgr::reqCreateInNewSpace: not found cellapp, message is buffered.\n");
+		WARNING_MSG("Cellappmgr::reqCreateCellEntityInNewSpace: not found cellapp, message is buffered.\n");
 
 		ForwardItem* pFI = new AppForwardItem();
 		pFI->pHandler = NULL;
@@ -399,7 +381,7 @@ void Cellappmgr::reqCreateInNewSpace(Network::Channel* pChannel, MemoryStream& s
 	}
 
 	std::map< COMPONENT_ID, Cellapp >::iterator cellapp_iter = cellapps_.find(bestCellappID_);
-	DEBUG_MSG(fmt::format("Cellappmgr::reqCreateInNewSpace: entityType={}, entityID={}, componentID={}, cellapp(cid={}, load={}, numEntities={}).\n",
+	DEBUG_MSG(fmt::format("Cellappmgr::reqCreateCellEntityInNewSpace: entityType={}, entityID={}, componentID={}, cellapp(cid={}, load={}, numEntities={}).\n",
 		entityType, id, componentID, bestCellappID_, cellapp_iter->second.load(), cellapp_iter->second.numEntities()));
 
 	// 预先将实体数量增加
@@ -579,7 +561,9 @@ void Cellappmgr::querySpaces(Network::Channel* pChannel, MemoryStream& s)
 		Spaces& spaces = cellappref.spaces();
 
 		(*pBundle) << iter1->first;
-		(*pBundle) << spaces.size();
+		
+		// 如果不强制，则在win64下，它是8字节，而win32下是4字节
+		(*pBundle) << (uint32)spaces.size(); 
 
 		std::map<SPACE_ID, Space>& allSpaces = spaces.spaces();
 		std::map<SPACE_ID, Space>::iterator iter2 = allSpaces.begin();
@@ -588,10 +572,11 @@ void Cellappmgr::querySpaces(Network::Channel* pChannel, MemoryStream& s)
 			Space& space = iter2->second;
 			(*pBundle) << space.id();
 			(*pBundle) << space.getGeomappingPath();
+			(*pBundle) << space.getScriptModuleName();
 
 			Cells& cells = space.cells();
 			std::map<CELL_ID, Cell>& allCells = cells.cells();
-			(*pBundle) << allCells.size();
+			(*pBundle) << (uint32)allCells.size(); 
 
 			std::map<CELL_ID, Cell>::iterator iter3 = allCells.begin();
 			for (; iter3 != allCells.end(); ++iter3)
@@ -614,9 +599,11 @@ void Cellappmgr::updateSpaceData(Network::Channel* pChannel, MemoryStream& s)
 	SPACE_ID spaceID;
 	bool delspace = false;
 	std::string geomappingPath;
+	std::string scriptModuleName;
 
 	s >> componentID;
 	s >> spaceID;
+	s >> scriptModuleName;
 	s >> delspace;
 	s >> geomappingPath;
 
@@ -626,7 +613,7 @@ void Cellappmgr::updateSpaceData(Network::Channel* pChannel, MemoryStream& s)
 
 	Cellapp& cellappref = iter->second;
 
-	cellappref.spaces().updateSpaceData(spaceID, geomappingPath, delspace);
+	cellappref.spaces().updateSpaceData(spaceID, scriptModuleName, geomappingPath, delspace);
 }
 
 //-------------------------------------------------------------------------------------

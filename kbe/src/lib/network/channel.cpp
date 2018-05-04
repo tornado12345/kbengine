@@ -1,22 +1,4 @@
-/*
-This source file is part of KBEngine
-For the latest info, see http://www.kbengine.org/
-
-Copyright (c) 2008-2016 KBEngine.
-
-KBEngine is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-KBEngine is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
- 
-You should have received a copy of the GNU Lesser General Public License
-along with KBEngine.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright 2008-2018 Yolo Technologies, Inc. All Rights Reserved. https://www.comblockengine.com
 
 
 #include "channel.h"
@@ -94,6 +76,12 @@ Channel::SmartPoolObjectPtr Channel::createSmartPoolObj()
 void Channel::onReclaimObject()
 {
 	this->clearState();
+}
+
+//-------------------------------------------------------------------------------------
+void Channel::onEabledPoolObject()
+{
+
 }
 
 //-------------------------------------------------------------------------------------
@@ -801,9 +789,10 @@ void Channel::processPackets(KBEngine::Network::MessageHandlers* pMsgHandlers)
 		handshake();
 	}
 
+	BufferedReceives::iterator packetIter = bufferedReceives_.begin();
+	
 	try
 	{
-		BufferedReceives::iterator packetIter = bufferedReceives_.begin();
 		for(; packetIter != bufferedReceives_.end(); ++packetIter)
 		{
 			Packet* pPacket = (*packetIter);
@@ -824,6 +813,15 @@ void Channel::processPackets(KBEngine::Network::MessageHandlers* pMsgHandlers)
 		pPacketReader_->currMsgID(0);
 		pPacketReader_->currMsgLen(0);
 		condemn();
+
+		for (; packetIter != bufferedReceives_.end(); ++packetIter)
+		{
+			Packet* pPacket = (*packetIter);
+			if (pPacket->isEnabledPoolObject())
+			{
+				RECLAIM_PACKET(pPacket->isTCPPacket(), pPacket);
+			}
+		}
 	}
 
 	bufferedReceives_.clear();

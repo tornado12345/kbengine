@@ -1,22 +1,4 @@
-/*
-This source file is part of KBEngine
-For the latest info, see http://www.kbengine.org/
-
-Copyright (c) 2008-2016 KBEngine.
-
-KBEngine is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-KBEngine is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
- 
-You should have received a copy of the GNU Lesser General Public License
-along with KBEngine.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright 2008-2018 Yolo Technologies, Inc. All Rights Reserved. https://www.comblockengine.com
 
 
 #include "serverconfig.h"
@@ -442,17 +424,17 @@ bool ServerConfig::loadConfig(std::string fileName)
 		if(node != NULL)
 			strncpy((char*)&_cellAppInfo.entryScriptFile, xml->getValStr(node).c_str(), MAX_NAME);
 		
-		TiXmlNode* aoiNode = xml->enterNode(rootNode, "defaultAoIRadius");
-		if(aoiNode != NULL)
+		TiXmlNode* viewNode = xml->enterNode(rootNode, "defaultViewRadius");
+		if(viewNode != NULL)
 		{
 			node = NULL;
-			node = xml->enterNode(aoiNode, "radius");
+			node = xml->enterNode(viewNode, "radius");
 			if(node != NULL)
-				_cellAppInfo.defaultAoIRadius = float(xml->getValFloat(node));
+				_cellAppInfo.defaultViewRadius = float(xml->getValFloat(node));
 					
-			node = xml->enterNode(aoiNode, "hysteresisArea");
+			node = xml->enterNode(viewNode, "hysteresisArea");
 			if(node != NULL)
-				_cellAppInfo.defaultAoIHysteresisArea = float(xml->getValFloat(node));
+				_cellAppInfo.defaultViewHysteresisArea = float(xml->getValFloat(node));
 		}
 			
 		node = xml->enterNode(rootNode, "ids");
@@ -461,9 +443,9 @@ bool ServerConfig::loadConfig(std::string fileName)
 			TiXmlNode* childnode = xml->enterNode(node, "criticallyLowSize");
 			if(childnode)
 			{
-				_cellAppInfo.criticallyLowSize = xml->getValInt(childnode);
-				if(_cellAppInfo.criticallyLowSize < 100)
-					_cellAppInfo.criticallyLowSize = 100;
+				_cellAppInfo.ids_criticallyLowSize = xml->getValInt(childnode);
+				if (_cellAppInfo.ids_criticallyLowSize < 100)
+					_cellAppInfo.ids_criticallyLowSize = 100;
 			}
 		}
 		
@@ -648,9 +630,9 @@ bool ServerConfig::loadConfig(std::string fileName)
 			TiXmlNode* childnode = xml->enterNode(node, "criticallyLowSize");
 			if(childnode)
 			{
-				_baseAppInfo.criticallyLowSize = xml->getValInt(childnode);
-				if(_baseAppInfo.criticallyLowSize < 100)
-					_baseAppInfo.criticallyLowSize = 100;
+				_baseAppInfo.ids_criticallyLowSize = xml->getValInt(childnode);
+				if (_baseAppInfo.ids_criticallyLowSize < 100)
+					_baseAppInfo.ids_criticallyLowSize = 100;
 			}
 		}
 		
@@ -788,6 +770,16 @@ bool ServerConfig::loadConfig(std::string fileName)
 			}
 		}
 
+		node = xml->enterNode(rootNode, "ids");
+		if (node != NULL)
+		{
+			TiXmlNode* childnode = xml->enterNode(node, "increasing_range");
+			if (childnode)
+			{
+				_dbmgrInfo.ids_increasing_range = xml->getValInt(childnode);
+			}
+		}
+
 		node = xml->enterNode(rootNode, "InterfacesServiceAddr");
 		if (node != NULL)
 		{
@@ -831,6 +823,9 @@ bool ServerConfig::loadConfig(std::string fileName)
 			{
 				do
 				{
+					if (TiXmlNode::TINYXML_COMMENT == databaseInterfacesNode->Type())
+						continue;
+
 					std::string name = databaseInterfacesNode->Value();
 
 					DBInterfaceInfo dbinfo;
@@ -1212,11 +1207,22 @@ bool ServerConfig::loadConfig(std::string fileName)
 			{
 				_botsInfo.bots_account_name_suffix_inc = xml->getValInt(childnode);
 			}
+
+			childnode = xml->enterNode(node, "account_password");
+			if (childnode)
+			{
+				_botsInfo.bots_account_passwd = xml->getValStr(childnode);
+			}
 		}
 
 		node = xml->enterNode(rootNode, "SOMAXCONN");
 		if(node != NULL){
 			_botsInfo.tcp_SOMAXCONN = xml->getValInt(node);
+		}
+
+		node = xml->enterNode(rootNode, "forceInternalLogin");
+		if (node != NULL){
+			_botsInfo.forceInternalLogin = (xml->getValStr(node) == "true");
 		}
 
 		node = xml->enterNode(rootNode, "telnet_service");
@@ -1480,12 +1486,19 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 		info.externalAddr = &externalAddr;
 		info.componentID = componentID;
 
+		if (info.ids_criticallyLowSize > getDBMgr().ids_increasing_range / 2)
+		{
+			info.ids_criticallyLowSize = getDBMgr().ids_increasing_range / 2;
+			ERROR_MSG(fmt::format("kbengine[_defs].xml->cellapp->ids->criticallyLowSize > dbmgr->ids->increasing_range / 2, Force adjustment to criticallyLowSize({})\n", 
+				info.ids_criticallyLowSize));
+		}
+
 		if(isPrint)
 		{
 			INFO_MSG("server-configs:\n");
 			INFO_MSG(fmt::format("\tgameUpdateHertz : {}\n", gameUpdateHertz()));
-			INFO_MSG(fmt::format("\tdefaultAoIRadius : {}\n", info.defaultAoIRadius));
-			INFO_MSG(fmt::format("\tdefaultAoIHysteresisArea : {}\n", info.defaultAoIHysteresisArea));
+			INFO_MSG(fmt::format("\tdefaultViewRadius : {}\n", info.defaultViewRadius));
+			INFO_MSG(fmt::format("\tdefaultViewHysteresisArea : {}\n", info.defaultViewHysteresisArea));
 			INFO_MSG(fmt::format("\tentryScriptFile : {}\n", info.entryScriptFile));
 			INFO_MSG(fmt::format("\tinternalAddr : {}\n", internalAddr.c_str()));
 			//INFO_MSG(fmt::format("\texternalAddr : {}\n", externalAddr.c_str()));
@@ -1493,8 +1506,8 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 
 			infostr += "server-configs:\n";
 			infostr += (fmt::format("\tgameUpdateHertz : {}\n", gameUpdateHertz()));
-			infostr += (fmt::format("\tdefaultAoIRadius : {}\n", info.defaultAoIRadius));
-			infostr += (fmt::format("\tdefaultAoIHysteresisArea : {}\n", info.defaultAoIHysteresisArea));
+			infostr += (fmt::format("\tdefaultViewRadius : {}\n", info.defaultViewRadius));
+			infostr += (fmt::format("\tdefaultViewHysteresisArea : {}\n", info.defaultViewHysteresisArea));
 			infostr += (fmt::format("\tentryScriptFile : {}\n", info.entryScriptFile));
 			infostr += (fmt::format("\tinternalAddr : {}\n", internalAddr.c_str()));
 			//infostr += (fmt::format("\texternalAddr : {}\n", externalAddr.c_str()));
@@ -1507,6 +1520,13 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 		info.internalAddr = const_cast<Network::Address*>(&internalAddr);
 		info.externalAddr = const_cast<Network::Address*>(&externalAddr);
 		info.componentID = componentID;
+
+		if (info.ids_criticallyLowSize > getDBMgr().ids_increasing_range / 2)
+		{
+			info.ids_criticallyLowSize = getDBMgr().ids_increasing_range / 2;
+			ERROR_MSG(fmt::format("kbengine[_defs].xml->baseapp->ids->criticallyLowSize > dbmgr->ids->increasing_range / 2, Force adjustment to criticallyLowSize({})\n",
+				info.ids_criticallyLowSize));
+		}
 
 		if(isPrint)
 		{
@@ -1583,6 +1603,13 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 		info.internalAddr = const_cast<Network::Address*>(&internalAddr);
 		info.externalAddr = const_cast<Network::Address*>(&externalAddr);
 		info.componentID = componentID;
+
+		if (info.ids_increasing_range < 500)
+		{
+			info.ids_increasing_range = 500;
+			ERROR_MSG(fmt::format("kbengine[_defs].xml-> dbmgr->ids->increasing_range too small, Force adjustment to ids_increasing_range({})\n",
+				info.ids_increasing_range));
+		}
 
 		if(isPrint)
 		{
