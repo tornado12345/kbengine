@@ -5,6 +5,7 @@
 #include "scriptdef_module.h"
 #include "datatypes.h"
 #include "common.h"
+#include "py_entitydef.h"
 #include "entity_component.h"
 #include "pyscript/py_memorystream.h"
 #include "resmgr/resmgr.h"
@@ -50,6 +51,8 @@ ENTITY_SCRIPT_UID g_scriptUtype = 1;
 // 获得某个entity的函数地址
 EntityDef::GetEntityFunc EntityDef::__getEntityFunc;
 
+static std::map<std::string, std::vector<PropertyDescription*> > g_logComponentPropertys;
+
 //-------------------------------------------------------------------------------------
 EntityDef::EntityDef()
 {
@@ -92,6 +95,7 @@ bool EntityDef::finalise(bool isReload)
 		EntityDef::__oldScriptTypeMappingUType.clear();
 	}
 
+	g_scriptUtype = 1;
 	EntityDef::__scriptModules.clear();
 	EntityDef::__scriptTypeMappingUType.clear();
 	g_methodCusUtypes.clear();
@@ -110,6 +114,9 @@ PyObject* EntityDef::tryGetEntity(COMPONENT_ID componentID, ENTITY_ID entityID)
 void EntityDef::reload(bool fullReload)
 {
 	g_isReload = true;
+
+	script::entitydef::reload(fullReload);
+
 	if(fullReload)
 	{
 		EntityDef::__oldScriptModules.clear();
@@ -123,10 +130,10 @@ void EntityDef::reload(bool fullReload)
 		}
 
 		bool ret = finalise(true);
-		KBE_ASSERT(ret && "EntityDef::reload: finalise is error!");
+		KBE_ASSERT(ret && "EntityDef::reload: finalise error!");
 
 		ret = initialize(EntityDef::__scriptBaseTypes, EntityDef::__loadComponentType);
-		KBE_ASSERT(ret && "EntityDef::reload: initialize is error!");
+		KBE_ASSERT(ret && "EntityDef::reload: initialize error!");
 	}
 	else
 	{
@@ -182,9 +189,8 @@ bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes,
 	XML_FOR_BEGIN(node)
 	{
 		std::string moduleName = xml.get()->getKey(node);
-		__scriptTypeMappingUType[moduleName] = g_scriptUtype;
-		ScriptDefModule* pScriptModule = new ScriptDefModule(moduleName, g_scriptUtype++);
-		EntityDef::__scriptModules.push_back(pScriptModule);
+
+		ScriptDefModule* pScriptModule = registerNewScriptDefModule(moduleName);
 
 		std::string deffile = defFilePath + moduleName + ".def";
 		SmartPointer<XML> defxml(new XML());
@@ -221,12 +227,31 @@ bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes,
 	}
 	XML_FOR_END(node);
 
+	if (!script::entitydef::initialize())
+		return false;
+
 	EntityDef::md5().final();
 
 	if(loadComponentType == DBMGR_TYPE)
 		return true;
 
-	return loadAllEntityScriptModules(__entitiesPath, scriptBaseTypes) && initializeWatcher();
+	return loadAllEntityScriptModules(__entitiesPath, scriptBaseTypes) &&
+		initializeWatcher();
+}
+
+//-------------------------------------------------------------------------------------
+ScriptDefModule* EntityDef::registerNewScriptDefModule(const std::string& moduleName)
+{
+	ScriptDefModule* pScriptModule = findScriptModule(moduleName.c_str(), false);
+	
+	if (!pScriptModule)
+	{
+		__scriptTypeMappingUType[moduleName] = g_scriptUtype;
+		pScriptModule = new ScriptDefModule(moduleName, g_scriptUtype++);
+		EntityDef::__scriptModules.push_back(pScriptModule);
+	}
+
+	return pScriptModule;
 }
 
 //-------------------------------------------------------------------------------------
@@ -454,15 +479,26 @@ bool EntityDef::loadInterfaces(const std::string& defFilePath,
 
 	XML_FOR_BEGIN(implementsNode)
 	{
-		if (defxml->getKey(implementsNode) != "Interface" && defxml->getKey(implementsNode) != "Type")
+		if (defxml->getKey(implementsNode) != "interface" && defxml->getKey(implementsNode) != "Interface" && 
+			defxml->getKey(implementsNode) != "type" && defxml->getKey(implementsNode) != "Type")
 			continue;
 
 		TiXmlNode* interfaceNode = defxml->enterNode(implementsNode, "Interface");
 		if (!interfaceNode)
 		{
-			interfaceNode = defxml->enterNode(implementsNode, "Type");
+			interfaceNode = defxml->enterNode(implementsNode, "interface");
 			if (!interfaceNode)
-				continue;
+			{
+				interfaceNode = defxml->enterNode(implementsNode, "Type");
+				if (!interfaceNode)
+				{
+					interfaceNode = defxml->enterNode(implementsNode, "type");
+					if (!interfaceNode)
+					{
+						continue;
+					}
+				}
+			}
 		}
 
 		std::string interfaceName = defxml->getKey(interfaceNode);
@@ -540,7 +576,7 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 		if (!componentNode)
 			continue;
 
-		if (!validDefPropertyName(pScriptModule, componentName))
+		if (!validDefPropertyName(componentName))
 		{
 			ERROR_MSG(fmt::format("EntityDef::loadComponents: '{}' is limited, in module({})!\n",
 				componentName, moduleName));
@@ -568,7 +604,7 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 
 		// 产生一个属性描述实例
 		ENTITY_PROPERTY_UID			futype = 0;
-		uint32						flags = ENTITY_BASE_DATA_FLAGS | ENTITY_CELL_DATA_FLAGS | ENTITY_CLIENT_DATA_FLAGS;
+		uint32						flags = ED_FLAG_BASE | ED_FLAG_CELL_PUBLIC | ENTITY_CLIENT_DATA_FLAGS;
 		bool						isPersistent = true;
 		bool						isIdentifier = false;		// 是否是一个索引键
 		uint32						databaseLength = 0;			// 这个属性在数据库中的长度
@@ -598,35 +634,33 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 		// 查找是否有这个模块，如果有说明已经加载过相关描述，这里无需再次加载
 		ScriptDefModule* pCompScriptDefModule = findScriptModule(componentTypeName.c_str(), false);
 
-		PropertyDescription* pPropertyDescription = NULL;
-
 		if (!pCompScriptDefModule)
 		{
-			__scriptTypeMappingUType[componentTypeName] = g_scriptUtype;
-			pCompScriptDefModule = new ScriptDefModule(componentTypeName, g_scriptUtype++);
+			pCompScriptDefModule = registerNewScriptDefModule(componentTypeName);
 			pCompScriptDefModule->isPersistent(false);
 			pCompScriptDefModule->isComponentModule(true);
-
-			EntityDef::__scriptModules.push_back(pCompScriptDefModule);
-
-			pPropertyDescription = addComponentProperty(futype, componentTypeName, componentName, flags, isPersistent, isIdentifier,
-				indexType, databaseLength, defaultStr, detailLevel, pScriptModule, pCompScriptDefModule);
 		}
 		else
 		{
-			pPropertyDescription = addComponentProperty(futype, componentTypeName, componentName, flags, isPersistent, isIdentifier,
+			flags = ED_FLAG_UNKOWN;
+
+			if (pCompScriptDefModule->hasBase())
+				flags |= ED_FLAG_BASE;
+
+			if (pCompScriptDefModule->hasCell())
+				flags |= ED_FLAG_CELL_PUBLIC;
+
+			if (pCompScriptDefModule->hasClient())
+			{
+				if (pCompScriptDefModule->hasBase())
+					flags |= ED_FLAG_BASE_AND_CLIENT;
+				else
+					flags |= (ED_FLAG_ALL_CLIENTS | ED_FLAG_CELL_PUBLIC_AND_OWN | ED_FLAG_OTHER_CLIENTS | ED_FLAG_OWN_CLIENT);
+			}
+
+			addComponentProperty(futype, componentTypeName, componentName, flags, isPersistent, isIdentifier,
 				indexType, databaseLength, defaultStr, detailLevel, pScriptModule, pCompScriptDefModule);
 
-			if (!pCompScriptDefModule->hasBase())
-				flags &= ~ENTITY_BASE_DATA_FLAGS;
-
-			if (!pCompScriptDefModule->hasCell())
-				flags &= ~ENTITY_CELL_DATA_FLAGS;
-
-			if (!pCompScriptDefModule->hasClient())
-				flags &= ~ENTITY_CLIENT_DATA_FLAGS;
-
-			pPropertyDescription->setFlags(flags);
 			pScriptModule->addComponentDescription(componentName.c_str(), pCompScriptDefModule);
 			continue;
 		}
@@ -646,15 +680,6 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 			return false;
 		}
 
-		// 尝试加载detailLevel数据
-		if (!loadDetailLevelInfo(defFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
-		{
-			ERROR_MSG(fmt::format("EntityDef::loadComponents: failed to load component:{} DetailLevelInfo.\n",
-				componentTypeName.c_str()));
-
-			return false;
-		}
-
 		// 遍历所有的interface， 并将他们的方法和属性加入到模块中
 		if (!loadInterfaces(defFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule, true))
 		{
@@ -664,16 +689,45 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 			return false;
 		}
 		
-		if (!pCompScriptDefModule->hasBase())
-			flags &= ~ENTITY_BASE_DATA_FLAGS;
+		// 加载父类所有的内容
+		if (!loadParentClass(defFilePath + "components/", componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
+		{
+			ERROR_MSG(fmt::format("EntityDef::loadComponents: failed to load component:{} parentClass.\n",
+				componentTypeName.c_str()));
 
-		if (!pCompScriptDefModule->hasCell())
-			flags &= ~ENTITY_CELL_DATA_FLAGS;
+			return false;
+		}
 
-		if (!pCompScriptDefModule->hasClient())
-			flags &= ~ENTITY_CLIENT_DATA_FLAGS;
+		// 尝试加载detailLevel数据
+		if (!loadDetailLevelInfo(defFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
+		{
+			ERROR_MSG(fmt::format("EntityDef::loadComponents: failed to load component:{} DetailLevelInfo.\n",
+				componentTypeName.c_str()));
 
-		pPropertyDescription->setFlags(flags);
+			return false;
+		}
+
+		pCompScriptDefModule->autoMatchCompOwn();
+
+		flags = ED_FLAG_UNKOWN;
+
+		if (pCompScriptDefModule->hasBase())
+			flags |= ED_FLAG_BASE;
+
+		if (pCompScriptDefModule->hasCell())
+			flags |= ED_FLAG_CELL_PUBLIC;
+
+		if (pCompScriptDefModule->hasClient())
+		{
+			if (pCompScriptDefModule->hasBase())
+				flags |= ED_FLAG_BASE_AND_CLIENT;
+			
+			if (pCompScriptDefModule->hasCell())
+				flags |= (ED_FLAG_ALL_CLIENTS | ED_FLAG_CELL_PUBLIC_AND_OWN | ED_FLAG_OTHER_CLIENTS | ED_FLAG_OWN_CLIENT);
+		}
+
+		addComponentProperty(futype, componentTypeName, componentName, flags, isPersistent, isIdentifier,
+			indexType, databaseLength, defaultStr, detailLevel, pScriptModule, pCompScriptDefModule);
 
 		pScriptModule->addComponentDescription(componentName.c_str(), pCompScriptDefModule);
 	}
@@ -747,6 +801,7 @@ PropertyDescription* EntityDef::addComponentProperty(ENTITY_PROPERTY_UID utype,
 		return NULL;
 	}
 
+	g_logComponentPropertys[pScriptModule->getName()].push_back(propertyDescription);
 	return propertyDescription;
 }
 
@@ -828,7 +883,7 @@ bool EntityDef::loadAllDefDescriptions(const std::string& moduleName,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::validDefPropertyName(ScriptDefModule* pScriptModule, const std::string& name)
+bool EntityDef::validDefPropertyName(const std::string& name)
 {
 	int i = 0;
 
@@ -987,7 +1042,7 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 			std::string					name = "";
 
 			name = xml->getKey(defPropertyNode);
-			if(!validDefPropertyName(pScriptModule, name))
+			if(!validDefPropertyName(name))
 			{
 				ERROR_MSG(fmt::format("EntityDef::loadDefPropertys: '{}' is limited, in module({})!\n", 
 					name, moduleName));
@@ -1090,7 +1145,6 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 				std::transform(indexType.begin(), indexType.end(), 
 					indexType.begin(), toupper);
 			}
-			
 
 			TiXmlNode* identifierNode = xml->enterNode(defPropertyNode->FirstChild(), "Identifier");
 			if(identifierNode)
@@ -1652,48 +1706,130 @@ bool EntityDef::checkDefMethod(ScriptDefModule* pScriptModule,
 {
 	ScriptDefModule::METHODDESCRIPTION_MAP* methodDescrsPtr = NULL;
 	
-	switch(__loadComponentType)
+	PyObject* pyInspectModule =
+		PyImport_ImportModule(const_cast<char*>("inspect"));
+
+	PyObject* pyGetfullargspec = NULL;
+	if (pyInspectModule)
+	{
+		Py_DECREF(pyInspectModule);
+
+		pyGetfullargspec =
+			PyObject_GetAttrString(pyInspectModule, const_cast<char *>("getfullargspec"));
+	}
+	else
+	{
+		SCRIPT_ERROR_CHECK();
+	}
+
+	switch (__loadComponentType)
 	{
 	case BASEAPP_TYPE:
-		methodDescrsPtr = 
+		methodDescrsPtr =
 			(ScriptDefModule::METHODDESCRIPTION_MAP*)&pScriptModule->getBaseMethodDescriptions();
 		break;
 	case CELLAPP_TYPE:
-		methodDescrsPtr = 
+		methodDescrsPtr =
 			(ScriptDefModule::METHODDESCRIPTION_MAP*)&pScriptModule->getCellMethodDescriptions();
 		break;
 	case CLIENT_TYPE:
 	case BOTS_TYPE:
-		methodDescrsPtr = 
+		methodDescrsPtr =
 			(ScriptDefModule::METHODDESCRIPTION_MAP*)&pScriptModule->getClientMethodDescriptions();
 		break;
 	default:
-		methodDescrsPtr = 
+		methodDescrsPtr =
 			(ScriptDefModule::METHODDESCRIPTION_MAP*)&pScriptModule->getCellMethodDescriptions();
 		break;
 	};
 
 	ScriptDefModule::METHODDESCRIPTION_MAP::iterator iter = methodDescrsPtr->begin();
-	for(; iter != methodDescrsPtr->end(); ++iter)
+	for (; iter != methodDescrsPtr->end(); ++iter)
 	{
-		PyObject* pyMethod = 
+		PyObject* pyMethod =
 			PyObject_GetAttrString(moduleObj, const_cast<char *>(iter->first.c_str()));
 
 		if (pyMethod != NULL)
 		{
+			if (pyGetfullargspec)
+			{
+				// def方法中的参数个数
+				size_t methodArgsSize = iter->second->getArgSize();
+
+				PyObject* pyGetMethodArgs = PyObject_CallFunction(pyGetfullargspec,
+					const_cast<char*>("(O)"), pyMethod);
+
+				if (!pyGetMethodArgs)
+				{
+					SCRIPT_ERROR_CHECK();
+				}
+				else
+				{
+					PyObject* pyGetMethodArgsResult = PyObject_GetAttrString(pyGetMethodArgs, const_cast<char *>("args"));
+					Py_DECREF(pyGetMethodArgs);
+
+					if (!pyGetMethodArgsResult)
+					{
+						SCRIPT_ERROR_CHECK();
+					}
+					else
+					{
+						size_t argsSize = (size_t)PyObject_Size(pyGetMethodArgsResult);
+
+						// 减去self这个参数
+						KBE_ASSERT(argsSize > 0);
+						argsSize -= 1;
+
+						Py_DECREF(pyGetMethodArgsResult);
+
+						// 检查参数的个数是否匹配
+						if (methodArgsSize != argsSize)
+						{
+							// 如果不匹配， 并且是一个exposed方法，参数多了一个，可以理解为显示的加入了第一个参数callerID用于脚本检查调用者
+							// 如果不是这种情况，一律视为参数不正确
+							if (iter->second->isExposed() && methodArgsSize + 1 == argsSize)
+							{
+								iter->second->setExposed(MethodDescription::EXPOSED_AND_CALLER_CHECK);
+							}
+							else
+							{
+								ERROR_MSG(fmt::format("EntityDef::checkDefMethod: {}.{} parameter is incorrect, script argssize({}) != {}! defined in {}.def!\n",
+									moduleName.c_str(), iter->first.c_str(), methodArgsSize, argsSize, moduleName));
+
+								Py_DECREF(pyMethod);
+								Py_XDECREF(pyGetfullargspec);
+								return false;
+							}
+						}
+
+						if (iter->second->isExposed())
+						{
+							if (iter->second->isExposed() != MethodDescription::EXPOSED_AND_CALLER_CHECK && iter->second->isCell())
+							{
+								WARNING_MSG(fmt::format("EntityDef::checkDefMethod: exposed of method: {}.{}{}!\n",
+									moduleName.c_str(), iter->first.c_str(), (iter->second->isExposed() == MethodDescription::EXPOSED_AND_CALLER_CHECK ?
+										"" : fmt::format(", check the caller can use \"def {}(self, callerID, ...)\", such as: if callerID == self.id", iter->first))));
+							}
+						}
+					}
+				}
+			}
+
 			Py_DECREF(pyMethod);
 		}
 		else
 		{
 			ERROR_MSG(fmt::format("EntityDef::checkDefMethod: class {} does not have method[{}], defined in {}.def!\n",
-					moduleName.c_str(), iter->first.c_str(), moduleName));
+				moduleName.c_str(), iter->first.c_str(), moduleName));
 
 			PyErr_Clear();
+			Py_XDECREF(pyGetfullargspec);
 			return false;
 		}
 	}
-	
-	return true;	
+
+	Py_XDECREF(pyGetfullargspec);
+	return true;
 }
 
 //-------------------------------------------------------------------------------------
@@ -1733,9 +1869,13 @@ PyObject* EntityDef::loadScriptModule(std::string moduleName)
 		std::string userScriptsPath = Resmgr::getSingleton().getPyUserScriptsPath();
 		std::string pyModulePath = "";
 
-		const char *pModulePath = PyModule_GetFilename(pyModule);
-		if (pModulePath)
-			pyModulePath = pModulePath;
+		PyObject *fileobj = NULL;
+
+		fileobj = PyModule_GetFilenameObject(pyModule);
+		if (fileobj)
+			pyModulePath = PyUnicode_AsUTF8(fileobj);
+
+		Py_DECREF(fileobj);  
 
 		strutil::kbe_replace(userScriptsPath, "/", "");
 		strutil::kbe_replace(userScriptsPath, "\\", "");
@@ -1834,13 +1974,22 @@ ERASE_PROPERTYS:
 							uint32 flags = compPropertyInter->second->getFlags();
 
 							if (g_componentType == BASEAPP_TYPE)
+							{
 								flags &= ~ENTITY_BASE_DATA_FLAGS;
+								flags &= ~ED_FLAG_BASE_AND_CLIENT;
+							}
 							else if (g_componentType == CELLAPP_TYPE)
+							{
 								flags &= ~ENTITY_CELL_DATA_FLAGS;
+								flags &= ~(ED_FLAG_ALL_CLIENTS | ED_FLAG_CELL_PUBLIC_AND_OWN | ED_FLAG_OTHER_CLIENTS | ED_FLAG_OWN_CLIENT);
+							}
 							else
+							{
 								flags &= ~ENTITY_CLIENT_DATA_FLAGS;
+							}
 
 							compPropertyInter->second->setFlags(flags);
+							compPropertyInter->second->decRef();
 
 							propertyDescrs.erase(compPropertyInter++);
 							continue;
@@ -1859,6 +2008,61 @@ ERASE_PROPERTYS:
 		}
 
 		setScriptModuleHasComponentEntity(pScriptModule, true);
+
+		{
+			std::vector<ScriptDefModulePtr>::iterator entityScriptModuleIter = EntityDef::__scriptModules.begin();
+			for (; entityScriptModuleIter != EntityDef::__scriptModules.end(); ++entityScriptModuleIter)
+			{
+				std::vector<PropertyDescription*>& componentPropertys = g_logComponentPropertys[(*entityScriptModuleIter)->getName()];
+				std::vector<PropertyDescription*>::iterator componentPropertysIter = componentPropertys.begin();
+				for (; componentPropertysIter != componentPropertys.end(); ++componentPropertysIter)
+				{
+					PropertyDescription* pComponentPropertyDescription = (*componentPropertysIter);
+					ScriptDefModule* pCompScriptModule = static_cast<EntityComponentType*>(pComponentPropertyDescription->getDataType())->pScriptDefModule();
+
+					if (pCompScriptModule->getName() != componentScriptName)
+						continue;
+
+					uint32 pflags = pComponentPropertyDescription->getFlags();
+
+  					if (g_componentType == BASEAPP_TYPE)
+					{
+						pflags |= ENTITY_BASE_DATA_FLAGS;
+
+						if(pCompScriptModule->hasClient())
+							pflags |= ED_FLAG_BASE_AND_CLIENT;
+					}
+					else if (g_componentType == CELLAPP_TYPE)
+					{
+						pflags |= ENTITY_CELL_DATA_FLAGS;
+
+						if (pCompScriptModule->hasClient())
+							pflags |= (ED_FLAG_ALL_CLIENTS | ED_FLAG_CELL_PUBLIC_AND_OWN | ED_FLAG_OTHER_CLIENTS | ED_FLAG_OWN_CLIENT);
+					}
+					else
+					{
+						pflags |= ENTITY_CLIENT_DATA_FLAGS;
+					}
+
+					pComponentPropertyDescription->setFlags(pflags);
+					if (pComponentPropertyDescription->isPersistent() && pCompScriptModule->numPropertys() == 0)
+					{
+						pComponentPropertyDescription->isPersistent(false);
+
+						if ((*entityScriptModuleIter)->findPersistentPropertyDescription(pComponentPropertyDescription->getUType()))
+						{
+							(*entityScriptModuleIter)->getPersistentPropertyDescriptions().erase(pComponentPropertyDescription->getName());
+							(*entityScriptModuleIter)->getPersistentPropertyDescriptions_uidmap().erase(pComponentPropertyDescription->getUType());
+						}
+					}
+
+					if ((*entityScriptModuleIter)->findPropertyDescription(pComponentPropertyDescription->getName(), g_componentType) != pComponentPropertyDescription)
+					{
+						(*entityScriptModuleIter)->addPropertyDescription(pComponentPropertyDescription->getName(), pComponentPropertyDescription, g_componentType, true);
+					}
+				}
+			}
+		}
 
 		PyObject* pyClass =
 			PyObject_GetAttrString(pyModule, const_cast<char *>(componentScriptName.c_str()));
@@ -1922,6 +2126,7 @@ ERASE_PROPERTYS:
 		S_RELEASE(pyModule);
 	}
 
+	g_logComponentPropertys.clear();
 	return true;
 }
 
@@ -2144,6 +2349,7 @@ bool EntityDef::installScript(PyObject* mod)
 	FixedArray::installScript(NULL);
 	FixedDict::installScript(NULL);
 	VolatileInfo::installScript(NULL);
+	script::entitydef::installModule("Def");
 
 	_isInit = true;
 	return true;
@@ -2160,15 +2366,16 @@ bool EntityDef::uninstallScript()
 		FixedArray::uninstallScript();
 		FixedDict::uninstallScript();
 		VolatileInfo::uninstallScript();
+		script::entitydef::uninstallModule();
 	}
 
-	return EntityDef::finalise();
+	return script::entitydef::finalise() && EntityDef::finalise();
 }
 
 //-------------------------------------------------------------------------------------
 bool EntityDef::initializeWatcher()
 {
-	return true;
+	return script::entitydef::initializeWatcher();
 }
 
 //-------------------------------------------------------------------------------------

@@ -300,6 +300,35 @@ PyObject* ScriptDefModule::getInitDict(void)
 //-------------------------------------------------------------------------------------
 void ScriptDefModule::autoMatchCompOwn()
 {
+	if (isComponentModule())
+	{
+		std::string fmodule = "scripts/base/components/" + name_ + ".py";
+		std::string fmodule_pyc = fmodule + "c";
+		if (Resmgr::getSingleton().matchRes(fmodule) != fmodule ||
+			Resmgr::getSingleton().matchRes(fmodule_pyc) != fmodule_pyc)
+		{
+			setBase(true);
+		}
+
+		fmodule = "scripts/cell/components/" + name_ + ".py";
+		fmodule_pyc = fmodule + "c";
+		if (Resmgr::getSingleton().matchRes(fmodule) != fmodule ||
+			Resmgr::getSingleton().matchRes(fmodule_pyc) != fmodule_pyc)
+		{
+			setCell(true);
+		}
+
+		if (!hasClient())
+		{
+			// 如果是组件， 并且服务器上没有脚本或者exposed方法不需要产生代码
+			if ((hasBase() && getBaseExposedMethodDescriptions().size() > 0) ||
+				(hasCell() && getCellExposedMethodDescriptions().size() > 0))
+				setClient(true);
+		}
+
+		return;
+	}
+
 	/*
 		entity存在某部分(cell, base, client)的判定规则
 
@@ -486,9 +515,9 @@ void ScriptDefModule::autoMatchCompOwn()
 //-------------------------------------------------------------------------------------
 bool ScriptDefModule::addPropertyDescription(const char* attrName, 
 										  PropertyDescription* propertyDescription, 
-										  COMPONENT_TYPE componentType)
+										  COMPONENT_TYPE componentType, bool ignoreConflict)
 {
-	if(hasMethodName(attrName))
+	if(!ignoreConflict && hasMethodName(attrName))
 	{
 		ERROR_MSG(fmt::format("ScriptDefModule::addPropertyDescription: There is a method[{}] name conflict! componentType={}.\n",
 			attrName, componentType));
@@ -496,7 +525,7 @@ bool ScriptDefModule::addPropertyDescription(const char* attrName,
 		return false;
 	}
 	
-	if (hasComponentName(attrName))
+	if (!ignoreConflict && hasComponentName(attrName))
 	{
 		ERROR_MSG(fmt::format("ScriptDefModule::addPropertyDescription: There is a component[{}] name conflict!\n",
 			attrName));
