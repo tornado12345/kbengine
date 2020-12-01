@@ -266,7 +266,9 @@ void Bots::handleTimeout(TimerHandle handle, void * arg)
 void Bots::handleGameTick()
 {
 	// time_t t = ::time(NULL);
-	// DEBUG_MSG("EntityApp::handleGameTick[%"PRTime"]:%u\n", t, time_);
+	// static int kbeTime = 0;
+	// DEBUG_MSG(fmt::format("Bots::handleGameTick[{}]:{}\n", t, ++kbeTime));
+
 	ClientApp::handleGameTick();
 
 	pEventPoller_->processPendingEvents(0.0);
@@ -347,7 +349,7 @@ PyObject* Bots::__py_addBots(PyObject* self, PyObject* args)
 
 	if(PyTuple_Size(args) == 1)
 	{
-		if(PyArg_ParseTuple(args, "I", &reqCreateAndLoginTotalCount) == -1)
+		if(!PyArg_ParseTuple(args, "I", &reqCreateAndLoginTotalCount))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::addBots: args error!");
 			PyErr_PrintEx(0);
@@ -359,8 +361,8 @@ PyObject* Bots::__py_addBots(PyObject* self, PyObject* args)
 	}
 	else if(PyTuple_Size(args) == 3)
 	{
-		if(PyArg_ParseTuple(args, "I|I|f", &reqCreateAndLoginTotalCount, 
-			&reqCreateAndLoginTickCount, &reqCreateAndLoginTickTime) == -1)
+		if(!PyArg_ParseTuple(args, "I|I|f", &reqCreateAndLoginTotalCount, 
+			&reqCreateAndLoginTickCount, &reqCreateAndLoginTickTime))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::addBots: args error!");
 			PyErr_PrintEx(0);
@@ -399,7 +401,7 @@ PyObject* Bots::__py_setScriptLogType(PyObject* self, PyObject* args)
 
 	int type = -1;
 
-	if(PyArg_ParseTuple(args, "i", &type) == -1)
+	if(!PyArg_ParseTuple(args, "i", &type))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::scriptLogType(): args error!");
 		PyErr_PrintEx(0);
@@ -577,8 +579,8 @@ void Bots::onAppActiveTick(Network::Channel* pChannel, COMPONENT_TYPE componentT
 		pTargetChannel = pChannel;
 	}
 
-	//DEBUG_MSG("ServerApp::onAppActiveTick[%x]: %s:%"PRAppID" lastReceivedTime:%"PRIu64" at %s.\n", 
-	//	pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pTargetChannel->c_str());
+	//DEBUG_MSG(fmt::format("Bots::onAppActiveTick[:p]: {}:{} lastReceivedTime:{} at {}.\n",
+	//	(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));
 }
 
 //-------------------------------------------------------------------------------------

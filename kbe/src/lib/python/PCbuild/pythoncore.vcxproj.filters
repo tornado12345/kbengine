@@ -971,12 +971,10 @@
     <ClCompile Include="..\Objects\odictobject.c">
       <Filter>Objects</Filter>
     </ClCompile>
-    <ClCompile Include="..\Modules\_asynciomodule.c">
-      <Filter>Modules</Filter>
-    </ClCompile>
     <ClCompile Include="..\Modules\_contextvarsmodule.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\Modules\_asynciomodule.c" />
     <ClCompile Include="..\Python\context.c" />
     <ClCompile Include="..\Python\hamt.c" />
   </ItemGroup>

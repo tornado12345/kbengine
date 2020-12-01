@@ -25,6 +25,7 @@ SCRIPT_DIRECT_METHOD_DECLARE("getWatcher",			__py_getWatcher,			METH_VARARGS,			
 SCRIPT_DIRECT_METHOD_DECLARE("getWatcherDir",		__py_getWatcherDir,			METH_VARARGS,					0)
 SCRIPT_DIRECT_METHOD_DECLARE("disconnect",			__py_disconnect,			METH_VARARGS,					0)
 SCRIPT_DIRECT_METHOD_DECLARE("kbassert",			__py_assert,				METH_VARARGS,					0)
+SCRIPT_DIRECT_METHOD_DECLARE("player",				__py_getPlayer,				METH_VARARGS,					0)
 SCRIPT_METHOD_DECLARE_END()
 
 SCRIPT_MEMBER_DECLARE_BEGIN(ClientObjectBase)
@@ -262,7 +263,7 @@ PyObject* ClientObjectBase::__py_callback(PyObject* self, PyObject* args)
 	float time = 0;
 	PyObject* pyCallback = NULL;
 
-	if(PyArg_ParseTuple(args, "f|O",  &time, &pyCallback) == -1)
+	if(!PyArg_ParseTuple(args, "f|O",  &time, &pyCallback))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::callback: args error!");
 		PyErr_PrintEx(0);
@@ -296,7 +297,7 @@ PyObject* ClientObjectBase::__py_cancelCallback(PyObject* self, PyObject* args)
 
 	ScriptID id = 0;
 
-	if(PyArg_ParseTuple(args, "i",  &id) == -1)
+	if(!PyArg_ParseTuple(args, "i",  &id))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::cancelCallback: args error!");
 		PyErr_PrintEx(0);
@@ -1152,6 +1153,21 @@ void ClientObjectBase::onUpdatePropertys_(ENTITY_ID eid, MemoryStream& s)
 client::Entity* ClientObjectBase::pPlayer()
 {
 	return pEntities_->find(entityID_);
+}
+
+//-------------------------------------------------------------------------------------
+PyObject* ClientObjectBase::__py_getPlayer(PyObject *self, void *args) {
+
+	ClientObjectBase* pClientObjectBase = static_cast<ClientObjectBase*>(self);
+
+	client::Entity* pEntity = pClientObjectBase->pPlayer();
+	if (pEntity)
+	{
+		Py_INCREF(pEntity);
+		return pEntity;
+	}
+
+	S_Return;
 }
 
 //-------------------------------------------------------------------------------------
@@ -2411,7 +2427,7 @@ PyObject* ClientObjectBase::__py_GetSpaceData(PyObject* self, PyObject* args)
 	}
 	
 	char* key = NULL;
-	if(PyArg_ParseTuple(args, "s",  &key) == -1)
+	if(!PyArg_ParseTuple(args, "s",  &key))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getSpaceData: args error!");
 		PyErr_PrintEx(0);
@@ -2445,7 +2461,7 @@ PyObject* ClientObjectBase::__py_getWatcher(PyObject* self, PyObject* args)
 	
 	char* path;
 
-	if(PyArg_ParseTuple(args, "s", &path) == -1)
+	if(!PyArg_ParseTuple(args, "s", &path))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getWatcher(): args[strpath] error!");
 		PyErr_PrintEx(0);
@@ -2584,7 +2600,7 @@ PyObject* ClientObjectBase::__py_getWatcherDir(PyObject* self, PyObject* args)
 	
 	char* path;
 
-	if(PyArg_ParseTuple(args, "s", &path) == -1)
+	if(!PyArg_ParseTuple(args, "s", &path))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getWatcherDir(): args[strpath] error!");
 		PyErr_PrintEx(0);
@@ -2615,7 +2631,7 @@ PyObject* ClientObjectBase::__py_disconnect(PyObject* self, PyObject* args)
 	if(PyTuple_Size(args) == 1)
 	{
 		uint32 i = 0;
-		if(PyArg_ParseTuple(args, "I", &i) == -1)
+		if(!PyArg_ParseTuple(args, "I", &i))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::disconnect(): args[lock_secs] error!");
 			PyErr_PrintEx(0);

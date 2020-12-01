@@ -106,8 +106,10 @@ public:
 
 	DECLARE_PY_GET_MOTHOD(pyGetOwner);
 
+	DECLARE_PY_GET_MOTHOD(pyGetClassName);
+
 	DECLARE_PY_MOTHOD_ARG3(pyAddTimer, float, float, int32);
-	DECLARE_PY_MOTHOD_ARG1(pyDelTimer, ScriptID);
+	DECLARE_PY_MOTHOD_ARG1(pyDelTimer, PyObject_ptr);
 
 	/** 
 		ªÒµ√√Ë ˆ 
@@ -189,6 +191,7 @@ public:
 	static void onEntityDestroy(PyObject* pEntity, ScriptDefModule* pEntityScriptDescrs, bool callScript, bool beforeDestroy);
 	void onOwnerDestroyBegin(PyObject* pEntity, ScriptDefModule* pEntityScriptDescrs, bool callScript);
 	void onOwnerDestroyEnd(PyObject* pEntity, ScriptDefModule* pEntityScriptDescrs, bool callScript);
+	void onOwnerDestroyClear(PyObject* pEntity, ScriptDefModule* pEntityScriptDescrs);
 
 	PropertyDescription* pPropertyDescription() const {
 		return pPropertyDescription_;

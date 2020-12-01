@@ -891,7 +891,28 @@ void Baseapp::onGetEntityAppFromDbmgr(Network::Channel* pChannel, int32 uid, std
 	cinfos->pChannel = NULL;
 
 	int ret = Components::getSingleton().connectComponent(tcomponentType, uid, componentID);
-	KBE_ASSERT(ret != -1);
+
+	if (ret == -1)
+	{
+		if (!pInitProgressHandler_)
+			pInitProgressHandler_ = new InitProgressHandler(this->networkInterface());
+
+		pInitProgressHandler_->updateInfos(componentID_, startGlobalOrder_, startGroupOrder_);
+
+		InitProgressHandler::PendingConnectEntityApp appInfos;
+		appInfos.componentID = componentID;
+		appInfos.componentType = tcomponentType;
+		appInfos.uid = uid;
+		appInfos.count = 0;
+		pInitProgressHandler_->addPendingConnectEntityApps(appInfos);
+
+		ERROR_MSG(fmt::format("Baseapp::onGetEntityAppFromDbmgr: Add to the pending list and try connecting later! uid:{}, componentType:{}, componentID:{}\n",
+			uid,
+			COMPONENT_NAME_EX((COMPONENT_TYPE)tcomponentType),
+			componentID));
+
+		return;
+	}
 
 	Network::Bundle* pBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
 
@@ -940,14 +961,14 @@ PyObject* Baseapp::__py_createEntity(PyObject* self, PyObject* args)
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* params = NULL;
 	char* entityType = NULL;
-	int ret = -1;
+	int ret = 0;
 
 	if(argCount == 2)
 		ret = PyArg_ParseTuple(args, "s|O", &entityType, &params);
 	else
 		ret = PyArg_ParseTuple(args, "s", &entityType);
 
-	if(entityType == NULL || ret == -1)
+	if(entityType == NULL || !ret)
 	{
 		PyErr_Format(PyExc_AssertionError, "Baseapp::createEntity: args error!");
 		PyErr_PrintEx(0);
@@ -967,7 +988,7 @@ PyObject* Baseapp::__py_createEntityAnywhere(PyObject* self, PyObject* args)
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* params = NULL, *pyCallback = NULL;
 	char* entityType = NULL;
-	int ret = -1;
+	int ret = 0;
 
 	switch(argCount)
 	{
@@ -982,7 +1003,7 @@ PyObject* Baseapp::__py_createEntityAnywhere(PyObject* self, PyObject* args)
 	};
 
 
-	if(entityType == NULL || ret == -1)
+	if(entityType == NULL || !ret)
 	{
 		PyErr_Format(PyExc_AssertionError, "Baseapp::createEntityAnywhere: args error!");
 		PyErr_PrintEx(0);
@@ -1009,12 +1030,12 @@ PyObject* Baseapp::__py_createEntityRemotely(PyObject* self, PyObject* args)
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* params = NULL, *pyCallback = NULL, *pyEntityCall = NULL;
 	char* entityType = NULL;
-	int ret = -1;
+	int ret = 0;
 
 	switch (argCount)
 	{
 	case 4:
-		ret = PyArg_ParseTuple(args, "s|O|O|O", &entityType, &params, &pyEntityCall, &pyCallback);
+		ret = PyArg_ParseTuple(args, "s|O|O|O", &entityType, &pyEntityCall, &params, &pyCallback);
 		break;
 	case 3:
 		ret = PyArg_ParseTuple(args, "s|O|O", &entityType, &pyEntityCall, &params);
@@ -1023,7 +1044,7 @@ PyObject* Baseapp::__py_createEntityRemotely(PyObject* self, PyObject* args)
 		ret = PyArg_ParseTuple(args, "s|O", &entityType, &pyEntityCall);
 	};
 
-	if (entityType == NULL || ret == -1)
+	if (entityType == NULL || !ret)
 	{
 		PyErr_Format(PyExc_AssertionError, "Baseapp::createEntityRemotely: args error!");
 		PyErr_PrintEx(0);
@@ -1069,7 +1090,7 @@ PyObject* Baseapp::__py_createEntityFromDBID(PyObject* self, PyObject* args)
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* pyCallback = NULL;
 	const char* entityType = NULL;
-	int ret = -1;
+	int ret = 0;
 	DBID dbid = 0;
 	PyObject* pyEntityType = NULL;
 	PyObject* pyDBInterfaceName = NULL;
@@ -1101,7 +1122,7 @@ PyObject* Baseapp::__py_createEntityFromDBID(PyObject* self, PyObject* args)
 		}
 	};
 
-	if (ret == -1)
+	if (!ret)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::createEntityFromDBID: args error!");
 		PyErr_PrintEx(0);
@@ -1408,7 +1429,7 @@ PyObject* Baseapp::__py_createEntityAnywhereFromDBID(PyObject* self, PyObject* a
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* pyCallback = NULL;
 	const char* entityType = NULL;
-	int ret = -1;
+	int ret = 0;
 	DBID dbid = 0;
 	PyObject* pyEntityType = NULL;
 	PyObject* pyDBInterfaceName = NULL;
@@ -1440,7 +1461,7 @@ PyObject* Baseapp::__py_createEntityAnywhereFromDBID(PyObject* self, PyObject* a
 		}
 	};
 
-	if (ret == -1)
+	if (!ret)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::createEntityAnywhereFromDBID: args error!");
 		PyErr_PrintEx(0);
@@ -1921,7 +1942,7 @@ PyObject* Baseapp::__py_createEntityRemotelyFromDBID(PyObject* self, PyObject* a
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* pyCallback = NULL, *pyEntityCall = NULL;
 	const char* entityType = NULL;
-	int ret = -1;
+	int ret = 0;
 	DBID dbid = 0;
 	PyObject* pyEntityType = NULL;
 	PyObject* pyDBInterfaceName = NULL;
@@ -1953,7 +1974,7 @@ PyObject* Baseapp::__py_createEntityRemotelyFromDBID(PyObject* self, PyObject* a
 		}
 	};
 
-	if (ret == -1)
+	if (!ret)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::createEntityRemotelyFromDBID: args error!");
 		PyErr_PrintEx(0);
@@ -3156,7 +3177,7 @@ PyObject* Baseapp::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args
 	int argCount = (int)PyTuple_Size(args);
 	PyObject* pycallback = NULL;
 	PyObject* pyDBInterfaceName = NULL;
-	int ret = -1;
+	int ret = 0;
 	ENTITY_ID eid = -1;
 
 	char* data = NULL;
@@ -3171,7 +3192,7 @@ PyObject* Baseapp::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args
 	else if(argCount == 1)
 		ret = PyArg_ParseTuple(args, "s#", &data, &size);
 
-	if(ret == -1)
+	if(!ret)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::executeRawDatabaseCommand: args error!");
 		PyErr_PrintEx(0);
@@ -3385,7 +3406,7 @@ PyObject* Baseapp::__py_charge(PyObject* self, PyObject* args)
 	char* pChargeID = NULL;
 	DBID dbid = 0;
 
-	if(PyArg_ParseTuple(args, "s|K|O|O", &pChargeID, &dbid, &pyDatas, &pycallback) == -1)
+	if(!PyArg_ParseTuple(args, "s|K|O|O", &pChargeID, &dbid, &pyDatas, &pycallback))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::charge: args error!");
 		PyErr_PrintEx(0);
@@ -3587,7 +3608,10 @@ void Baseapp::onDbmgrInitCompleted(Network::Channel* pChannel,
 	else
 		SCRIPT_ERROR_CHECK();
 
-	pInitProgressHandler_ = new InitProgressHandler(this->networkInterface());
+	if (!pInitProgressHandler_)
+		pInitProgressHandler_ = new InitProgressHandler(this->networkInterface());
+
+	pInitProgressHandler_->start();
 }
 
 //-------------------------------------------------------------------------------------
@@ -3821,15 +3845,6 @@ void Baseapp::loginBaseapp(Network::Channel* pChannel,
 		return;
 	}
 
-	// 虽然接入第三方dbmgr不检查密码，但至少在loginapp时提交的password应该跟本次提交的能匹配上
-	// 否则容易被其他连接攻击式的试探登陆
-	if (!ptinfos->needCheckPassword && ptinfos->password != password)
-	{
-		loginBaseappFailed(pChannel, accountName, SERVER_ERR_NAME_PASSWORD);
-		pendingLoginMgr_.removeNextTick(accountName);
-		return;
-	}
-
 	// 如果entityID大于0则说明此entity是存活状态登录
 	if(ptinfos->entityID > 0)
 	{
@@ -3993,7 +4008,8 @@ void Baseapp::reloginBaseapp(Network::Channel* pChannel, std::string& accountNam
 			pMBChannel->proxyID(0);
 			pMBChannel->condemn("", true);
 			Py_INCREF(entityClientEntityCall);
-			proxy->onClientDeath();
+			// 不再调用onClientDeath，可能脚本会在此时立即销毁了实体导致后面无法继续流程
+			//proxy->onClientDeath();
 			proxy->clientEntityCall(entityClientEntityCall);
 		}
 
@@ -5055,7 +5071,7 @@ PyObject* Baseapp::__py_reloadScript(PyObject* self, PyObject* args)
 	int argCount = (int)PyTuple_Size(args);
 	if(argCount == 1)
 	{
-		if(PyArg_ParseTuple(args, "b", &fullReload) == -1)
+		if(!PyArg_ParseTuple(args, "b", &fullReload))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::reloadScript(fullReload): args error!");
 			PyErr_PrintEx(0);
@@ -5127,7 +5143,7 @@ PyObject* Baseapp::__py_deleteEntityByDBID(PyObject* self, PyObject* args)
 
 	if (currargsSize == 3)
 	{
-		if (PyArg_ParseTuple(args, "s|K|O", &entityType, &dbid, &pycallback) == -1)
+		if (!PyArg_ParseTuple(args, "s|K|O", &entityType, &dbid, &pycallback))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::deleteEntityByDBID: args error!");
 			PyErr_PrintEx(0);
@@ -5136,7 +5152,7 @@ PyObject* Baseapp::__py_deleteEntityByDBID(PyObject* self, PyObject* args)
 	}
 	else if (currargsSize == 4)
 	{
-		if (PyArg_ParseTuple(args, "s|K|O|O", &entityType, &dbid, &pycallback, &pyDBInterfaceName) == -1)
+		if (!PyArg_ParseTuple(args, "s|K|O|O", &entityType, &dbid, &pycallback, &pyDBInterfaceName))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::deleteEntityByDBID: args error!");
 			PyErr_PrintEx(0);
@@ -5298,7 +5314,7 @@ PyObject* Baseapp::__py_lookUpEntityByDBID(PyObject* self, PyObject* args)
 
 	if (currargsSize == 3)
 	{
-		if (PyArg_ParseTuple(args, "s|K|O", &entityType, &dbid, &pycallback) == -1)
+		if (!PyArg_ParseTuple(args, "s|K|O", &entityType, &dbid, &pycallback))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::lookUpEntityByDBID: args error!");
 			PyErr_PrintEx(0);
@@ -5309,7 +5325,7 @@ PyObject* Baseapp::__py_lookUpEntityByDBID(PyObject* self, PyObject* args)
 	{
 		PyObject* pyDBInterfaceName = NULL;
 
-		if (PyArg_ParseTuple(args, "s|K|O|O", &entityType, &dbid, &pycallback, &pyDBInterfaceName) == -1)
+		if (!PyArg_ParseTuple(args, "s|K|O|O", &entityType, &dbid, &pycallback, &pyDBInterfaceName))
 		{
 			PyErr_Format(PyExc_TypeError, "KBEngine::lookUpEntityByDBID: args error!");
 			PyErr_PrintEx(0);
@@ -5716,7 +5732,7 @@ PyObject* Baseapp::__py_setFlags(PyObject* self, PyObject* args)
 
 	uint32 flags;
 
-	if(PyArg_ParseTuple(args, "I", &flags) == -1)
+	if(!PyArg_ParseTuple(args, "I", &flags))
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::setFlags: args error!");
 		PyErr_PrintEx(0);

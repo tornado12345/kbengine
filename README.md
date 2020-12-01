@@ -27,7 +27,7 @@ KBEngine
 
 ## Docs
 
-	Docs		: http://kbengine.org/docs/
+	Docs		: https://kbengine.github.io/docs/
 	API		: https://github.com/kbengine/kbengine/tree/master/docs
 
 
@@ -72,7 +72,7 @@ KBEngine
 
 ## 中文
 
-[官网](http://kbengine.org/cn)，[论坛](http://bbs.kbengine.org)，QQ交流群：716679842、837764110、461368412、16535321
+[官网](http://kbengine.org/cn)，[论坛](http://bbs.kbengine.org)，QQ交流群：461368412、16535321、716679842
 
 
 ## 什么是KBEngine?

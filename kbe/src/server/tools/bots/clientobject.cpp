@@ -145,6 +145,11 @@ bool ClientObject::initCreate()
 	}
 	
 	ENGINE_COMPONENT_INFO& infos = g_kbeSrvConfig.getBots();
+	if (infos.login_port_max > infos.login_port_min)
+	{
+		infos.login_port = infos.login_port_min + (rand() % (infos.login_port_max - infos.login_port_min + 1));
+	}
+
 	u_int32_t address;
 
 	Network::Address::string2ip(infos.login_ip, address);
@@ -253,14 +258,8 @@ bool ClientObject::initLoginBaseapp()
 			// 等待接收返回包
 			Network::UDPPacket* pHelloAckUDPPacket = Network::UDPPacket::createPoolObject(OBJECTPOOL_POINT);
 
-			fd_set	frds;
-			struct timeval tv = { 0, 1000000 }; // 1s
-
-			FD_ZERO(&frds);
-			FD_SET((int)(*pUdpEndpoint), &frds);
-
-			int selgot = select((*pUdpEndpoint) + 1, &frds, NULL, NULL, &tv);
-			if (selgot <= 0)
+			bool ret = Network::kbe_poll(int(*pUdpEndpoint));
+			if (!ret)
 			{
 				Network::UDPPacket::reclaimPoolObject(pHelloAckUDPPacket);
 				ERROR_MSG("ClientObject::initLogin: recvfrom timeout!\n");
